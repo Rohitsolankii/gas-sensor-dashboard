@@ -45,8 +45,10 @@ document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
   updateClock();
   setInterval(updateClock, 1000);
-  // Poll for new data via REST as backup
-  setInterval(loadInitialData, 30000);
+  // Auto-refresh data every 60 seconds (matches ESP32 send interval)
+  setInterval(() => {
+    loadFreshData();
+  }, 60000);
 });
 
 // ─── WebSocket ───
@@ -93,8 +95,8 @@ async function loadInitialData() {
     });
     deviceSelect.value = current;
 
-    // Load data for selected device or all
-    const devices = selectedDevice === 'all' ? (devData.devices || []) : [selectedDevice];
+    // Load data for all devices
+    const devices = devData.devices || [];
     for (const d of devices) {
       const res = await fetch(`/api/data/${d}?limit=100`);
       const data = await res.json();
@@ -105,10 +107,38 @@ async function loadInitialData() {
       });
     }
 
-    allData.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+    allData.sort((a, b) => (a.aws_timestamp || 0) - (b.aws_timestamp || 0));
     updateDashboard();
   } catch (err) {
     console.error('Load error:', err);
+  }
+}
+
+// ─── Refresh data (called every 60s) ───
+async function loadFreshData() {
+  try {
+    const devRes = await fetch('/api/devices');
+    const devData = await devRes.json();
+    const devices = devData.devices || [];
+
+    for (const d of devices) {
+      const res = await fetch(`/api/data/${d}?limit=10`);
+      const data = await res.json();
+      (data.items || []).forEach(item => {
+        if (!allData.find(x => x.device_id === item.device_id && x.timestamp === item.timestamp)) {
+          allData.push(item);
+        }
+      });
+    }
+
+    // Keep only last 500 records
+    allData.sort((a, b) => (a.aws_timestamp || 0) - (b.aws_timestamp || 0));
+    if (allData.length > 500) allData = allData.slice(-500);
+
+    updateDashboard();
+    console.log(`[Live] Refreshed: ${allData.length} total readings`);
+  } catch (err) {
+    console.error('Refresh error:', err);
   }
 }
 
@@ -116,7 +146,7 @@ async function loadInitialData() {
 function addDataPoint(item) {
   if (!allData.find(x => x.device_id === item.device_id && x.timestamp === item.timestamp)) {
     allData.push(item);
-    allData.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+    allData.sort((a, b) => (a.aws_timestamp || 0) - (b.aws_timestamp || 0));
     if (allData.length > 500) allData = allData.slice(-500);
   }
 }
