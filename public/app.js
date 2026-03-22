@@ -129,17 +129,30 @@ function updateDashboard() {
 
   if (filtered.length === 0) return;
 
-  const latest = filtered[filtered.length - 1];
-  const ppm = parseFloat(latest.gas_ppm) || 0;
-  const rssi = parseInt(latest.wifi_rssi) || 0;
-  const isAlert = latest.alert === true || latest.alert === 'true';
+  // Get unique devices in filtered data
+  const devices = [...new Set(filtered.map(d => d.device_id))];
+
+  // Find the most critical (highest PPM) latest reading across all devices
+  const latestPerDevice = {};
+  for (const d of filtered) {
+    if (!latestPerDevice[d.device_id] || (d.timestamp || 0) > (latestPerDevice[d.device_id].timestamp || 0)) {
+      latestPerDevice[d.device_id] = d;
+    }
+  }
+
+  // Show the highest PPM device on the gauge
+  const latestReadings = Object.values(latestPerDevice);
+  const mostCritical = latestReadings.reduce((a, b) =>
+    (parseFloat(a.gas_ppm) || 0) >= (parseFloat(b.gas_ppm) || 0) ? a : b
+  );
+
+  const ppm = parseFloat(mostCritical.gas_ppm) || 0;
+  const rssi = parseInt(mostCritical.wifi_rssi) || 0;
 
   // PPM Display
   ppmValue.textContent = ppm.toFixed(1);
   const ppmPercent = Math.min((ppm / 1000) * 100, 100);
   ppmBar.style.width = ppmPercent + '%';
-
-  // PPM color class
   ppmValue.className = 'ppm-value ' + getPPMClass(ppm);
 
   // Badge
@@ -154,38 +167,40 @@ function updateDashboard() {
     ppmBadge.className = 'card-badge safe';
   }
 
-  // Alert banner
-  if (isAlert) {
+  // Alert banner — triggers if ANY device is in alert
+  const anyAlert = latestReadings.some(d => d.alert === true || d.alert === 'true');
+  const alertDevices = latestReadings.filter(d => d.alert === true || d.alert === 'true').map(d => d.device_id);
+  if (anyAlert) {
     alertBanner.classList.add('active');
-    alertText.textContent = `GAS LEVEL CRITICAL — ${ppm.toFixed(1)} PPM EXCEEDS SAFETY THRESHOLD (${latest.device_id})`;
+    alertText.textContent = `GAS LEVEL CRITICAL — ${alertDevices.join(', ')} EXCEEDS SAFETY THRESHOLD`;
   } else {
     alertBanner.classList.remove('active');
   }
 
-  // Stats
+  // Stats (across all filtered data)
   const ppmValues = filtered.map(d => parseFloat(d.gas_ppm) || 0);
   statCurrent.textContent = ppm.toFixed(1);
   statMin.textContent = Math.min(...ppmValues).toFixed(1);
   statMax.textContent = Math.max(...ppmValues).toFixed(1);
   statAvg.textContent = (ppmValues.reduce((a, b) => a + b, 0) / ppmValues.length).toFixed(1);
 
-  // Signal
+  // Signal (from most critical device)
   rssiValue.textContent = rssi;
   signalBars.className = 'signal-bars ' + getSignalClass(rssi);
 
   // Device info
-  infoDevice.textContent = latest.device_id || '--';
-  infoADC.textContent = latest.raw_adc || '--';
-  infoTime.textContent = formatTime(latest.aws_timestamp || Date.now());
+  infoDevice.textContent = devices.length > 1 ? `${devices.length} devices` : (mostCritical.device_id || '--');
+  infoADC.textContent = mostCritical.raw_adc || '--';
+  infoTime.textContent = formatTime(mostCritical.aws_timestamp || Date.now());
 
-  // Chart
-  updateChart(filtered);
+  // Chart — separate lines per device
+  updateChart(filtered, devices);
 
-  // Table
+  // Table — shows all devices
   updateTable(filtered);
 
   // Reading count
-  readingCount.textContent = `${filtered.length} readings`;
+  readingCount.textContent = `${filtered.length} readings (${devices.length} device${devices.length > 1 ? 's' : ''})`;
 }
 
 // ─── Chart ───
@@ -274,16 +289,86 @@ function initChart() {
   Chart.register(thresholdPlugin);
 }
 
-function updateChart(data) {
-  const sliced = data.slice(-chartRange);
-  chart.data.labels = sliced.map(d => {
-    if (d.aws_timestamp) {
-      const date = new Date(d.aws_timestamp);
-      return date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-    }
-    return '';
-  });
-  chart.data.datasets[0].data = sliced.map(d => parseFloat(d.gas_ppm) || 0);
+function updateChart(data, devices) {
+  // Device color palette
+  const colors = [
+    { line: '#3b82f6', fill: 'rgba(59, 130, 246, 0.15)' },   // blue
+    { line: '#22c55e', fill: 'rgba(34, 197, 94, 0.15)' },    // green
+    { line: '#f97316', fill: 'rgba(249, 115, 22, 0.15)' },   // orange
+    { line: '#a855f7', fill: 'rgba(168, 85, 247, 0.15)' },   // purple
+    { line: '#ec4899', fill: 'rgba(236, 72, 153, 0.15)' },   // pink
+    { line: '#eab308', fill: 'rgba(234, 179, 8, 0.15)' },    // yellow
+  ];
+
+  if (!devices || devices.length <= 1) {
+    // Single device — one line
+    const sliced = data.slice(-chartRange);
+    const color = colors[0];
+
+    chart.data.labels = sliced.map(d => {
+      if (d.aws_timestamp) return new Date(d.aws_timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      return '';
+    });
+
+    chart.data.datasets = [{
+      label: devices?.[0] || 'Gas PPM',
+      data: sliced.map(d => parseFloat(d.gas_ppm) || 0),
+      borderColor: color.line,
+      backgroundColor: color.fill,
+      borderWidth: 2,
+      fill: true,
+      tension: 0.3,
+      pointRadius: 3,
+      pointBackgroundColor: color.line,
+      pointBorderColor: '#0a0f1a',
+      pointBorderWidth: 2,
+      pointHoverRadius: 6,
+    }];
+    chart.options.plugins.legend.display = false;
+  } else {
+    // Multiple devices — separate line per device
+    // Collect all unique timestamps for the x-axis
+    const allTimestamps = [...new Set(data.map(d => d.aws_timestamp))].sort().slice(-chartRange);
+
+    chart.data.labels = allTimestamps.map(ts =>
+      new Date(ts).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+    );
+
+    chart.data.datasets = devices.map((deviceId, i) => {
+      const color = colors[i % colors.length];
+      const deviceData = data.filter(d => d.device_id === deviceId);
+
+      // Map timestamps to PPM values (null if no data at that timestamp)
+      const values = allTimestamps.map(ts => {
+        const match = deviceData.find(d => d.aws_timestamp === ts);
+        return match ? (parseFloat(match.gas_ppm) || 0) : null;
+      });
+
+      return {
+        label: deviceId,
+        data: values,
+        borderColor: color.line,
+        backgroundColor: color.fill,
+        borderWidth: 2,
+        fill: false,
+        tension: 0.3,
+        pointRadius: 3,
+        pointBackgroundColor: color.line,
+        pointBorderColor: '#0a0f1a',
+        pointBorderWidth: 2,
+        pointHoverRadius: 6,
+        spanGaps: true,
+      };
+    });
+    chart.options.plugins.legend.display = true;
+    chart.options.plugins.legend.labels = {
+      color: '#94a3b8',
+      font: { family: 'Inter', size: 11 },
+      boxWidth: 12,
+      padding: 16,
+    };
+  }
+
   chart.update('none');
 }
 
