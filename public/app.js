@@ -38,6 +38,9 @@ const infoTime = $('infoTime');
 const footerTime = $('footerTime');
 
 // ─── Initialize ───
+let refreshCountdown = 30;
+let refreshTimer = null;
+
 document.addEventListener('DOMContentLoaded', () => {
   initChart();
   connectWebSocket();
@@ -45,10 +48,22 @@ document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
   updateClock();
   setInterval(updateClock, 1000);
-  // Auto-refresh data every 60 seconds (matches ESP32 send interval)
-  setInterval(() => {
+
+  // Auto-refresh data every 30 seconds via REST (reliable, works even if WebSocket fails)
+  refreshTimer = setInterval(() => {
     loadFreshData();
-  }, 60000);
+    refreshCountdown = 30;
+  }, 30000);
+
+  // Countdown display updates every second
+  setInterval(() => {
+    refreshCountdown = Math.max(0, refreshCountdown - 1);
+    const countEl = document.getElementById('footerTime');
+    if (countEl) {
+      const now = new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'medium' });
+      countEl.textContent = `${now}  •  Next refresh: ${refreshCountdown}s`;
+    }
+  }, 1000);
 });
 
 // ─── WebSocket ───
