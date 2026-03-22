@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gas Sensor Dashboard — Industrial IoT</title>
+  <meta name="description" content="Real-time industrial gas sensor monitoring dashboard">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ───── Header ───── -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+        </svg>
+        <h1>GasSense<span class="accent">IQ</span></h1>
+      </div>
+      <span class="subtitle">Industrial Gas Monitoring</span>
+    </div>
+    <div class="header-right">
+      <div class="connection-status" id="connStatus">
+        <span class="status-dot"></span>
+        <span class="status-text">Connecting...</span>
+      </div>
+      <select id="deviceSelect" class="device-select">
+        <option value="all">All Devices</option>
+      </select>
+    </div>
+  </header>
+
+  <!-- ───── Alert Banner ───── -->
+  <div class="alert-banner" id="alertBanner">
+    <div class="alert-content">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+        <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+      </svg>
+      <span id="alertText">GAS LEVEL CRITICAL — PPM EXCEEDS SAFETY THRESHOLD</span>
+    </div>
+  </div>
+
+  <!-- ───── Main Grid ───── -->
+  <main class="dashboard">
+
+    <!-- PPM Card -->
+    <div class="card card-ppm" id="ppmCard">
+      <div class="card-header">
+        <h2>Gas Concentration</h2>
+        <span class="card-badge" id="ppmBadge">SAFE</span>
+      </div>
+      <div class="ppm-display">
+        <span class="ppm-value" id="ppmValue">---</span>
+        <span class="ppm-unit">PPM</span>
+      </div>
+      <div class="ppm-bar-container">
+        <div class="ppm-bar" id="ppmBar"></div>
+        <div class="ppm-threshold" style="left: 30%">
+          <span>300 PPM</span>
+        </div>
+      </div>
+      <div class="ppm-range">
+        <span>0</span><span>250</span><span>500</span><span>750</span><span>1000</span>
+      </div>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="card card-stat">
+      <div class="stat-icon stat-icon-current">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+        </svg>
+      </div>
+      <div class="stat-info">
+        <span class="stat-label">Current</span>
+        <span class="stat-value" id="statCurrent">--</span>
+      </div>
+    </div>
+
+    <div class="card card-stat">
+      <div class="stat-icon stat-icon-min">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/>
+        </svg>
+      </div>
+      <div class="stat-info">
+        <span class="stat-label">Min</span>
+        <span class="stat-value" id="statMin">--</span>
+      </div>
+    </div>
+
+    <div class="card card-stat">
+      <div class="stat-icon stat-icon-max">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>
+        </svg>
+      </div>
+      <div class="stat-info">
+        <span class="stat-label">Max</span>
+        <span class="stat-value" id="statMax">--</span>
+      </div>
+    </div>
+
+    <div class="card card-stat">
+      <div class="stat-icon stat-icon-avg">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/>
+          <line x1="6" y1="20" x2="6" y2="14"/>
+        </svg>
+      </div>
+      <div class="stat-info">
+        <span class="stat-label">Average</span>
+        <span class="stat-value" id="statAvg">--</span>
+      </div>
+    </div>
+
+    <!-- Chart -->
+    <div class="card card-chart">
+      <div class="card-header">
+        <h2>PPM Over Time</h2>
+        <div class="chart-controls">
+          <button class="chart-btn active" data-range="50">Last 50</button>
+          <button class="chart-btn" data-range="100">Last 100</button>
+        </div>
+      </div>
+      <div class="chart-container">
+        <canvas id="ppmChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Signal & Device Info -->
+    <div class="card card-signal">
+      <div class="card-header"><h2>WiFi Signal</h2></div>
+      <div class="signal-display">
+        <span class="signal-value" id="rssiValue">--</span>
+        <span class="signal-unit">dBm</span>
+      </div>
+      <div class="signal-bars" id="signalBars">
+        <div class="bar bar-1"></div>
+        <div class="bar bar-2"></div>
+        <div class="bar bar-3"></div>
+        <div class="bar bar-4"></div>
+      </div>
+      <div class="device-info">
+        <div class="info-row">
+          <span>Device</span><span id="infoDevice">--</span>
+        </div>
+        <div class="info-row">
+          <span>Raw ADC</span><span id="infoADC">--</span>
+        </div>
+        <div class="info-row">
+          <span>Last Update</span><span id="infoTime">--</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Data Table -->
+    <div class="card card-table">
+      <div class="card-header">
+        <h2>Recent Readings</h2>
+        <span class="reading-count" id="readingCount">0 readings</span>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Device</th>
+              <th>PPM</th>
+              <th>ADC</th>
+              <th>RSSI</th>
+              <th>Alert</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody">
+            <tr><td colspan="6" class="empty-state">Waiting for data...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ───── Footer ───── -->
+  <footer class="footer">
+    <span>GasSenseIQ — Industrial IoT Monitoring</span>
+    <span id="footerTime"></span>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
