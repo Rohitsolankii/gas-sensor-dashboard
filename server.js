@@ -7,7 +7,7 @@ const path = require('path');
 
 const PORT = process.env.PORT || 3000;
 const AWS_REGION = process.env.AWS_REGION || 'ap-south-1';
-const TABLE_NAME = process.env.DYNAMO_TABLE || 'gas_sensor_data';
+const TABLE_NAME = process.env.DYNAMO_TABLE || 'gas_data';
 
 const ddbClient = new DynamoDBClient({
   region: AWS_REGION,
