@@ -1,11 +1,10 @@
 {
-  "name": "esp32-gas-dashboard",
+  "name": "gas-dashboard",
   "version": "1.0.0",
-  "description": "Industrial IoT Dashboard for ESP32 Gas Sensors",
+  "description": "Gas Sensor Dashboard",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "start": "node server.js"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.500.0",
