@@ -46,22 +46,41 @@ app.get('/api/devices', async (req, res) => {
   }
 });
 
-// Query data for a specific device (latest N readings)
+// Query data for a specific device (latest N readings, with pagination)
 app.get('/api/data/:deviceId', async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit) || 50, 200);
 
-    const result = await docClient.send(new QueryCommand({
+    const params = {
       TableName: TABLE_NAME,
       KeyConditionExpression: 'device_id = :d',
       ExpressionAttributeValues: { ':d': req.params.deviceId },
       ScanIndexForward: false,
       Limit: limit
-    }));
+    };
+
+    // Pagination: if client sends lastKey, use it to fetch the next page
+    if (req.query.lastKey) {
+      try {
+        params.ExclusiveStartKey = JSON.parse(decodeURIComponent(req.query.lastKey));
+      } catch (e) {
+        console.warn('Invalid lastKey:', e.message);
+      }
+    }
+
+    const result = await docClient.send(new QueryCommand(params));
 
     // Return items in chronological order (oldest first)
     const items = (result.Items || []).reverse();
-    res.json({ items, count: items.length });
+
+    const response = { items, count: items.length };
+
+    // If DynamoDB has more pages, include the key for the next page
+    if (result.LastEvaluatedKey) {
+      response.lastKey = encodeURIComponent(JSON.stringify(result.LastEvaluatedKey));
+    }
+
+    res.json(response);
   } catch (err) {
     console.error(`GET /api/data/${req.params.deviceId} error:`, err.message);
     res.status(500).json({ error: err.message });

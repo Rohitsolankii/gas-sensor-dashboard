@@ -96,6 +96,27 @@
     .badge.db { border-color: rgba(99, 102, 241, 0.25); color: var(--accent-indigo); background: rgba(99, 102, 241, 0.08); }
     .badge.db.loaded { border-color: rgba(52, 211, 153, 0.3); color: var(--accent-emerald); background: rgba(52, 211, 153, 0.08); }
 
+    /* Device Selector */
+    .device-selector {
+      display: flex; align-items: center; gap: 0.5rem;
+      padding: 0.35rem 0.5rem 0.35rem 0.85rem; border-radius: 50px;
+      background: rgba(99, 102, 241, 0.08);
+      border: 1px solid rgba(99, 102, 241, 0.2);
+      transition: all 0.3s ease;
+    }
+    .device-selector:hover { border-color: rgba(99, 102, 241, 0.4); }
+    .device-selector label { font-size: 0.72rem; color: var(--text-muted); font-weight: 500; white-space: nowrap; }
+    .device-selector select {
+      background: rgba(17, 24, 39, 0.9); color: var(--text-primary);
+      border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 8px;
+      padding: 0.3rem 0.5rem; font-size: 0.78rem; font-family: 'Inter', sans-serif;
+      font-weight: 600; cursor: pointer; outline: none;
+      min-width: 120px; transition: all 0.2s ease;
+    }
+    .device-selector select:hover { border-color: rgba(99, 102, 241, 0.5); }
+    .device-selector select:focus { border-color: var(--accent-indigo); box-shadow: 0 0 0 2px var(--glow-indigo); }
+    .device-selector select option { background: #111827; color: var(--text-primary); }
+
     @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.7); } }
 
     main { padding: 1.5rem 2rem 3rem; max-width: 1400px; margin: 0 auto; }
@@ -191,6 +212,17 @@
     .btn-refresh:active { transform: translateY(0); }
     .btn-refresh:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
+    .btn-loadmore {
+      display: block; width: 100%; margin-top: 1rem; padding: 0.65rem;
+      background: rgba(34, 211, 238, 0.08); border: 1px solid rgba(34, 211, 238, 0.2);
+      color: var(--accent-cyan); border-radius: 10px;
+      font-size: 0.8rem; font-weight: 600; cursor: pointer; font-family: inherit;
+      transition: all 0.25s ease;
+    }
+    .btn-loadmore:hover { background: rgba(34, 211, 238, 0.15); border-color: rgba(34, 211, 238, 0.4); transform: translateY(-1px); }
+    .btn-loadmore:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    .btn-loadmore.hidden { display: none; }
+
     .table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid rgba(255,255,255,0.04); }
     table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
     thead th { text-align: left; padding: 0.75rem 1rem; background: rgba(99, 102, 241, 0.06); color: var(--text-muted); font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid rgba(255,255,255,0.06); white-space: nowrap; }
@@ -229,6 +261,12 @@
         </div>
       </div>
       <div class="header-right">
+        <div class="device-selector">
+          <label>📟 Device:</label>
+          <select id="deviceSelect" onchange="onDeviceChange()">
+            <option value="device_01">device_01</option>
+          </select>
+        </div>
         <div id="dbBadge" class="badge db">
           <span>🗄️</span>
           <span id="dbText">Loading DB…</span>
@@ -311,6 +349,7 @@
             </tbody>
           </table>
         </div>
+        <button class="btn-loadmore hidden" id="btnLoadMore" onclick="loadMore()">⬇ Load More Records</button>
       </section>
 
     </main>
@@ -322,15 +361,17 @@
     // ═══════════════════════════════════════════════
     //  CONFIG
     // ═══════════════════════════════════════════════
-    const DEVICE_ID  = "device_01";
+    let currentDeviceId = "device_01";
     const MAX_POINTS = 30;
-    const MAX_TABLE  = 50;
+    const PAGE_SIZE  = 50;
 
     // ═══════════════════════════════════════════════
     //  STATE
     // ═══════════════════════════════════════════════
     const allReadings = [];
     let lastUpdateTime = null;
+    let nextPageKey = null;
+    let totalLoaded = 0;
 
     // ═══════════════════════════════════════════════
     //  CHART
@@ -471,7 +512,6 @@
 
       if (prepend) {
         tbody.insertBefore(tr, tbody.firstChild);
-        while (tbody.rows.length > MAX_TABLE) tbody.removeChild(tbody.lastChild);
       } else {
         tbody.appendChild(tr);
       }
@@ -484,18 +524,26 @@
       const btn = document.getElementById('btnRefresh');
       btn.disabled = true; btn.textContent = '⏳ Loading…';
       setDbBadge('loading', 'Querying…');
+      nextPageKey = null;
+      totalLoaded = 0;
 
       try {
-        const res = await fetch('/api/data/' + DEVICE_ID + '?limit=50');
+        const res = await fetch('/api/data/' + currentDeviceId + '?limit=' + PAGE_SIZE);
         if (!res.ok) throw new Error('HTTP ' + res.status);
 
         const json = await res.json();
         const items = json.items || [];
-        console.log('API returned', items.length, 'items');
+        totalLoaded = items.length;
+        nextPageKey = json.lastKey || null;
 
-        setDbBadge('loaded', items.length + ' records');
+        console.log('API returned', items.length, 'items, hasMore:', !!nextPageKey);
+        setDbBadge('loaded', totalLoaded + ' records');
 
-        // Build table (newest first)
+        // Show/hide Load More button
+        const loadMoreBtn = document.getElementById('btnLoadMore');
+        loadMoreBtn.classList.toggle('hidden', !nextPageKey);
+
+        // Build table (newest first for display)
         const tbody = document.getElementById('historyBody');
         tbody.innerHTML = '';
 
@@ -506,7 +554,7 @@
           reversed.forEach(item => addHistoryRow(item, false));
         }
 
-        // Chart (chronological = items as-is)
+        // Chart (chronological = items as-is from API which are oldest-first)
         gasChart.data.labels = [];
         gasChart.data.datasets[0].data = [];
         allReadings.length = 0;
@@ -532,6 +580,44 @@
       }
 
       btn.disabled = false; btn.textContent = '↻ Refresh';
+    }
+
+    // Load next page of older records
+    async function loadMore() {
+      if (!nextPageKey) return;
+
+      const btn = document.getElementById('btnLoadMore');
+      btn.disabled = true; btn.textContent = '⏳ Loading…';
+
+      try {
+        const res = await fetch('/api/data/' + currentDeviceId + '?limit=' + PAGE_SIZE + '&lastKey=' + nextPageKey);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+
+        const json = await res.json();
+        const items = json.items || [];
+        totalLoaded += items.length;
+        nextPageKey = json.lastKey || null;
+
+        console.log('Loaded', items.length, 'more items, total:', totalLoaded, 'hasMore:', !!nextPageKey);
+        setDbBadge('loaded', totalLoaded + ' records');
+
+        // Append to table (items come oldest-first from API, reverse for newest-first display)
+        const reversed = [...items].reverse();
+        reversed.forEach(item => addHistoryRow(item, false));
+
+        // Add to readings for stats
+        items.forEach(item => {
+          allReadings.push(Number(item.gas_value ?? item.gas_ppm ?? 0));
+        });
+        updateStats();
+
+        // Show/hide Load More
+        btn.classList.toggle('hidden', !nextPageKey);
+      } catch (err) {
+        console.error('loadMore error:', err);
+      }
+
+      btn.disabled = false; btn.textContent = '⬇ Load More Records';
     }
 
     function setDbBadge(state, text) {
@@ -574,17 +660,20 @@
         try {
           const msg = JSON.parse(evt.data);
           if (msg.type === 'data' && msg.items) {
-            // Process each item
-            msg.items.forEach(item => {
+            // Only process items matching the selected device
+            const relevantItems = msg.items.filter(i => i.device_id === currentDeviceId);
+            relevantItems.forEach(item => {
               const gasVal = Number(item.gas_value ?? item.gas_ppm ?? 0);
               allReadings.push(gasVal);
               updateCards(item);
               addChartPoint(item.timestamp, gasVal);
               addHistoryRow(item, true);
             });
-            gasChart.update('default');
-            updateStats();
-            document.getElementById('awaitingOverlay').classList.add('hidden');
+            if (relevantItems.length > 0) {
+              gasChart.update('default');
+              updateStats();
+              document.getElementById('awaitingOverlay').classList.add('hidden');
+            }
           }
         } catch (e) {
           console.error('WS parse error:', e);
@@ -593,12 +682,47 @@
     }
 
     // ═══════════════════════════════════════════════
+    //  DEVICE SELECTOR
+    // ═══════════════════════════════════════════════
+    async function loadDevices() {
+      try {
+        const res = await fetch('/api/devices');
+        if (!res.ok) return;
+        const json = await res.json();
+        const devices = json.devices || [];
+        const sel = document.getElementById('deviceSelect');
+        sel.innerHTML = '';
+        devices.forEach(d => {
+          const opt = document.createElement('option');
+          opt.value = d; opt.textContent = d;
+          if (d === currentDeviceId) opt.selected = true;
+          sel.appendChild(opt);
+        });
+        // If current device not in list, select the first
+        if (devices.length > 0 && !devices.includes(currentDeviceId)) {
+          currentDeviceId = devices[0];
+          sel.value = currentDeviceId;
+        }
+      } catch (e) {
+        console.warn('Could not load device list:', e);
+      }
+    }
+
+    function onDeviceChange() {
+      const sel = document.getElementById('deviceSelect');
+      currentDeviceId = sel.value;
+      console.log('Switched to device:', currentDeviceId);
+      loadHistory();
+    }
+
+    // ═══════════════════════════════════════════════
     //  INIT
     // ═══════════════════════════════════════════════
-    loadHistory();
+    loadDevices().then(() => loadHistory());
     connectWebSocket();
     setInterval(updateTimeSince, 1000);
-    setInterval(loadHistory, 300000); // Refresh history every 5 min
+    setInterval(loadDevices, 120000); // Refresh device list every 2 min
+    setInterval(loadHistory, 60000); // Auto-refresh every 60s to stay updated
   </script>
 </body>
 </html>
