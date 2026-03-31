@@ -264,7 +264,7 @@
         <div class="device-selector">
           <label>📟 Device:</label>
           <select id="deviceSelect" onchange="onDeviceChange()">
-            <option value="device_01">device_01</option>
+            <option value="__all__">All Devices</option>
           </select>
         </div>
         <div id="dbBadge" class="badge db">
@@ -361,9 +361,29 @@
     // ═══════════════════════════════════════════════
     //  CONFIG
     // ═══════════════════════════════════════════════
-    let currentDeviceId = "device_01";
+    let currentDeviceId = '__all__';
     const MAX_POINTS = 30;
     const PAGE_SIZE  = 50;
+
+    // Device color palette (vibrant, distinct)
+    const DEVICE_COLORS = [
+      { border: '#6366f1', bg: 'rgba(99,102,241,0.15)' },   // Indigo
+      { border: '#22d3ee', bg: 'rgba(34,211,238,0.15)' },   // Cyan
+      { border: '#f43f5e', bg: 'rgba(244,63,94,0.15)' },    // Rose
+      { border: '#fbbf24', bg: 'rgba(251,191,36,0.15)' },   // Amber
+      { border: '#34d399', bg: 'rgba(52,211,153,0.15)' },   // Emerald
+      { border: '#a855f7', bg: 'rgba(168,85,247,0.15)' },   // Purple
+      { border: '#f97316', bg: 'rgba(249,115,22,0.15)' },   // Orange
+      { border: '#ec4899', bg: 'rgba(236,72,153,0.15)' },   // Pink
+    ];
+
+    let knownDevices = [];
+
+    function getDeviceColor(deviceId) {
+      let idx = knownDevices.indexOf(deviceId);
+      if (idx === -1) { knownDevices.push(deviceId); idx = knownDevices.length - 1; }
+      return DEVICE_COLORS[idx % DEVICE_COLORS.length];
+    }
 
     // ═══════════════════════════════════════════════
     //  STATE
@@ -372,39 +392,41 @@
     let lastUpdateTime = null;
     let nextPageKey = null;
     let totalLoaded = 0;
+    let isMultiDevice = true;
 
     // ═══════════════════════════════════════════════
     //  CHART
     // ═══════════════════════════════════════════════
     const ctx = document.getElementById('gasChart').getContext('2d');
-    const grad = ctx.createLinearGradient(0, 0, 0, 320);
-    grad.addColorStop(0, 'rgba(99, 102, 241, 0.25)');
-    grad.addColorStop(0.5, 'rgba(34, 211, 238, 0.08)');
-    grad.addColorStop(1, 'rgba(99, 102, 241, 0)');
+
+    function makeGradient(colorStr) {
+      const g = ctx.createLinearGradient(0, 0, 0, 320);
+      g.addColorStop(0, colorStr); g.addColorStop(1, 'rgba(0,0,0,0)');
+      return g;
+    }
 
     const gasChart = new Chart(ctx, {
       type: 'line',
-      data: { labels: [], datasets: [{
-        label: 'Gas Value', data: [],
-        borderColor: '#6366f1', backgroundColor: grad,
-        borderWidth: 2.5, pointBackgroundColor: '#6366f1',
-        pointBorderColor: '#1e1b4b', pointBorderWidth: 2,
-        pointRadius: 4, pointHoverRadius: 7,
-        fill: true, tension: 0.35,
-      }]},
+      data: { labels: [], datasets: [] },
       options: {
         responsive: true, maintainAspectRatio: false,
         interaction: { intersect: false, mode: 'index' },
         plugins: {
-          legend: { display: false },
+          legend: {
+            display: true,
+            labels: {
+              color: '#94a3b8', font: { family: 'Inter', size: 11 },
+              usePointStyle: true, pointStyle: 'circle', padding: 16,
+            }
+          },
           tooltip: {
             backgroundColor: 'rgba(17, 24, 39, 0.95)',
             titleColor: '#f1f5f9', bodyColor: '#94a3b8',
             borderColor: 'rgba(99, 102, 241, 0.3)', borderWidth: 1,
-            cornerRadius: 10, padding: 12, displayColors: false,
+            cornerRadius: 10, padding: 12, displayColors: true,
             callbacks: {
               title: items => '⏱ ' + items[0].label,
-              label: item => 'Gas Level: ' + item.raw
+              label: item => item.dataset.label + ': ' + item.raw
             }
           }
         },
@@ -415,6 +437,33 @@
         animation: { duration: 500, easing: 'easeOutCubic' }
       }
     });
+
+    function createDataset(deviceId) {
+      const c = getDeviceColor(deviceId);
+      return {
+        label: deviceId,
+        data: [],
+        borderColor: c.border,
+        backgroundColor: makeGradient(c.bg),
+        borderWidth: 2.5,
+        pointBackgroundColor: c.border,
+        pointBorderColor: '#1e1b4b',
+        pointBorderWidth: 2,
+        pointRadius: isMultiDevice ? 3 : 4,
+        pointHoverRadius: 6,
+        fill: !isMultiDevice,
+        tension: 0.35,
+      };
+    }
+
+    function getOrCreateDataset(deviceId) {
+      let ds = gasChart.data.datasets.find(d => d.label === deviceId);
+      if (!ds) {
+        ds = createDataset(deviceId);
+        gasChart.data.datasets.push(ds);
+      }
+      return ds;
+    }
 
     // ═══════════════════════════════════════════════
     //  HELPERS
@@ -484,10 +533,14 @@
       lbl.className = 'level-label ' + info.level;
     }
 
-    function addChartPoint(ts, gasVal) {
-      gasChart.data.labels.push(timeLabel(ts));
+    function addChartPointSingle(ts, gasVal) {
+      const tl = timeLabel(ts);
+      if (!gasChart.data.labels.includes(tl)) gasChart.data.labels.push(tl);
       gasChart.data.datasets[0].data.push(Number(gasVal));
-      if (gasChart.data.labels.length > MAX_POINTS) { gasChart.data.labels.shift(); gasChart.data.datasets[0].data.shift(); }
+      if (gasChart.data.labels.length > MAX_POINTS) {
+        gasChart.data.labels.shift();
+        gasChart.data.datasets.forEach(ds => { if (ds.data.length > MAX_POINTS) ds.data.shift(); });
+      }
     }
 
     // ═══════════════════════════════════════════════
@@ -527,53 +580,130 @@
       nextPageKey = null;
       totalLoaded = 0;
 
+      isMultiDevice = (currentDeviceId === '__all__');
+
+      // Clear chart
+      gasChart.data.labels = [];
+      gasChart.data.datasets = [];
+      allReadings.length = 0;
+
+      // Clear table
+      const tbody = document.getElementById('historyBody');
+      tbody.innerHTML = '';
+
       try {
-        const res = await fetch('/api/data/' + currentDeviceId + '?limit=' + PAGE_SIZE);
-        if (!res.ok) throw new Error('HTTP ' + res.status);
+        if (isMultiDevice) {
+          // ── Multi-device: fetch data for each known device ──
+          const devRes = await fetch('/api/devices');
+          const devJson = devRes.ok ? await devRes.json() : { devices: [] };
+          const devices = devJson.devices || [];
 
-        const json = await res.json();
-        const items = json.items || [];
-        totalLoaded = items.length;
-        nextPageKey = json.lastKey || null;
+          if (devices.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><div class="icon">📭</div><div>No devices found</div></td></tr>';
+            setDbBadge('loaded', '0 records');
+            btn.disabled = false; btn.textContent = '↻ Refresh';
+            return;
+          }
 
-        console.log('API returned', items.length, 'items, hasMore:', !!nextPageKey);
-        setDbBadge('loaded', totalLoaded + ' records');
+          // Build a merged time-label set and per-device data
+          const allTimeLabels = new Set();
+          const deviceDataMap = {};
+          let allTableItems = [];
 
-        // Show/hide Load More button
-        const loadMoreBtn = document.getElementById('btnLoadMore');
-        loadMoreBtn.classList.toggle('hidden', !nextPageKey);
+          for (const devId of devices) {
+            const res = await fetch('/api/data/' + devId + '?limit=' + PAGE_SIZE);
+            if (!res.ok) continue;
+            const json = await res.json();
+            const items = json.items || [];
+            deviceDataMap[devId] = items;
+            totalLoaded += items.length;
+            items.forEach(item => {
+              allTimeLabels.add(timeLabel(item.timestamp));
+              allReadings.push(Number(item.gas_value ?? item.gas_ppm ?? 0));
+              allTableItems.push(item);
+            });
+          }
 
-        // Build table (newest first for display)
-        const tbody = document.getElementById('historyBody');
-        tbody.innerHTML = '';
+          // Sort labels chronologically, keep last MAX_POINTS
+          const sortedLabels = [...allTimeLabels].sort().slice(-MAX_POINTS);
+          gasChart.data.labels = sortedLabels;
 
-        const reversed = [...items].reverse();
-        if (reversed.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><div class="icon">📭</div><div>No data in DynamoDB yet</div></td></tr>';
+          // Create a dataset per device
+          for (const devId of devices) {
+            const ds = createDataset(devId);
+            const items = deviceDataMap[devId] || [];
+            const itemMap = {};
+            items.forEach(item => {
+              itemMap[timeLabel(item.timestamp)] = Number(item.gas_value ?? item.gas_ppm ?? 0);
+            });
+            // Fill data array aligned to sortedLabels (null for gaps → Chart.js skips)
+            ds.data = sortedLabels.map(lbl => itemMap[lbl] ?? null);
+            ds.spanGaps = true;
+            gasChart.data.datasets.push(ds);
+          }
+
+          // Table: merge all items, sort newest first
+          allTableItems.sort((a, b) => {
+            const ta = String(a.timestamp); const tb = String(b.timestamp);
+            return tb.localeCompare(ta);
+          });
+          if (allTableItems.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><div class="icon">📭</div><div>No data in DynamoDB yet</div></td></tr>';
+          } else {
+            allTableItems.forEach(item => addHistoryRow(item, false));
+          }
+
+          // Cards: show latest overall
+          if (allTableItems.length > 0) {
+            updateCards(allTableItems[0]);
+            document.getElementById('awaitingOverlay').classList.add('hidden');
+          }
+
+          // Hide Load More in multi-device mode
+          document.getElementById('btnLoadMore').classList.add('hidden');
+          setDbBadge('loaded', totalLoaded + ' records · ' + devices.length + ' devices');
+
         } else {
-          reversed.forEach(item => addHistoryRow(item, false));
+          // ── Single device ──
+          const res = await fetch('/api/data/' + currentDeviceId + '?limit=' + PAGE_SIZE);
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+
+          const json = await res.json();
+          const items = json.items || [];
+          totalLoaded = items.length;
+          nextPageKey = json.lastKey || null;
+
+          setDbBadge('loaded', totalLoaded + ' records');
+          document.getElementById('btnLoadMore').classList.toggle('hidden', !nextPageKey);
+
+          // Table (newest first)
+          const reversed = [...items].reverse();
+          if (reversed.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><div class="icon">📭</div><div>No data in DynamoDB yet</div></td></tr>';
+          } else {
+            reversed.forEach(item => addHistoryRow(item, false));
+          }
+
+          // Chart: single dataset
+          const ds = createDataset(currentDeviceId);
+          ds.fill = true;
+          const chartItems = items.slice(-MAX_POINTS);
+          gasChart.data.labels = chartItems.map(i => timeLabel(i.timestamp));
+          ds.data = chartItems.map(i => Number(i.gas_value ?? i.gas_ppm ?? 0));
+          chartItems.forEach(i => allReadings.push(Number(i.gas_value ?? i.gas_ppm ?? 0)));
+          gasChart.data.datasets = [ds];
+
+          if (items.length > 0) {
+            updateCards(items[items.length - 1]);
+            document.getElementById('awaitingOverlay').classList.add('hidden');
+          }
         }
 
-        // Chart (chronological = items as-is from API which are oldest-first)
-        gasChart.data.labels = [];
-        gasChart.data.datasets[0].data = [];
-        allReadings.length = 0;
-
-        const chartItems = items.slice(-MAX_POINTS);
-        chartItems.forEach(item => {
-          const g = Number(item.gas_value ?? item.gas_ppm ?? 0);
-          allReadings.push(g);
-          addChartPoint(item.timestamp, g);
-        });
-
+        // Toggle legend: show in multi-device, hide in single
+        gasChart.options.plugins.legend.display = isMultiDevice;
         gasChart.update('default');
         updateStats();
 
-        // Update cards with latest
-        if (items.length > 0) {
-          updateCards(items[items.length - 1]);
-          document.getElementById('awaitingOverlay').classList.add('hidden');
-        }
       } catch (err) {
         console.error('loadHistory error:', err);
         setDbBadge('error', 'Error: ' + err.message);
@@ -582,9 +712,9 @@
       btn.disabled = false; btn.textContent = '↻ Refresh';
     }
 
-    // Load next page of older records
+    // Load next page of older records (single device only)
     async function loadMore() {
-      if (!nextPageKey) return;
+      if (!nextPageKey || isMultiDevice) return;
 
       const btn = document.getElementById('btnLoadMore');
       btn.disabled = true; btn.textContent = '⏳ Loading…';
@@ -598,20 +728,12 @@
         totalLoaded += items.length;
         nextPageKey = json.lastKey || null;
 
-        console.log('Loaded', items.length, 'more items, total:', totalLoaded, 'hasMore:', !!nextPageKey);
         setDbBadge('loaded', totalLoaded + ' records');
 
-        // Append to table (items come oldest-first from API, reverse for newest-first display)
         const reversed = [...items].reverse();
         reversed.forEach(item => addHistoryRow(item, false));
-
-        // Add to readings for stats
-        items.forEach(item => {
-          allReadings.push(Number(item.gas_value ?? item.gas_ppm ?? 0));
-        });
+        items.forEach(item => allReadings.push(Number(item.gas_value ?? item.gas_ppm ?? 0)));
         updateStats();
-
-        // Show/hide Load More
         btn.classList.toggle('hidden', !nextPageKey);
       } catch (err) {
         console.error('loadMore error:', err);
@@ -660,16 +782,40 @@
         try {
           const msg = JSON.parse(evt.data);
           if (msg.type === 'data' && msg.items) {
-            // Only process items matching the selected device
-            const relevantItems = msg.items.filter(i => i.device_id === currentDeviceId);
-            relevantItems.forEach(item => {
+            const items = isMultiDevice
+              ? msg.items
+              : msg.items.filter(i => i.device_id === currentDeviceId);
+
+            items.forEach(item => {
               const gasVal = Number(item.gas_value ?? item.gas_ppm ?? 0);
               allReadings.push(gasVal);
               updateCards(item);
-              addChartPoint(item.timestamp, gasVal);
               addHistoryRow(item, true);
+
+              // Add to chart
+              const tl = timeLabel(item.timestamp);
+              const ds = isMultiDevice
+                ? getOrCreateDataset(item.device_id)
+                : gasChart.data.datasets[0];
+
+              if (ds) {
+                if (!gasChart.data.labels.includes(tl)) gasChart.data.labels.push(tl);
+                // In multi-device, pad other datasets with null for new label
+                if (isMultiDevice) {
+                  gasChart.data.datasets.forEach(d => {
+                    if (d !== ds && d.data.length < gasChart.data.labels.length) d.data.push(null);
+                  });
+                }
+                ds.data.push(gasVal);
+                // Trim to MAX_POINTS
+                if (gasChart.data.labels.length > MAX_POINTS) {
+                  gasChart.data.labels.shift();
+                  gasChart.data.datasets.forEach(d => { if (d.data.length > MAX_POINTS) d.data.shift(); });
+                }
+              }
             });
-            if (relevantItems.length > 0) {
+
+            if (items.length > 0) {
               gasChart.update('default');
               updateStats();
               document.getElementById('awaitingOverlay').classList.add('hidden');
@@ -690,18 +836,19 @@
         if (!res.ok) return;
         const json = await res.json();
         const devices = json.devices || [];
+        knownDevices = devices;
         const sel = document.getElementById('deviceSelect');
-        sel.innerHTML = '';
+        const prev = sel.value;
+        sel.innerHTML = '<option value="__all__">🌐 All Devices</option>';
         devices.forEach(d => {
           const opt = document.createElement('option');
           opt.value = d; opt.textContent = d;
-          if (d === currentDeviceId) opt.selected = true;
           sel.appendChild(opt);
         });
-        // If current device not in list, select the first
-        if (devices.length > 0 && !devices.includes(currentDeviceId)) {
-          currentDeviceId = devices[0];
-          sel.value = currentDeviceId;
+        // Restore previous selection
+        if (prev && (prev === '__all__' || devices.includes(prev))) {
+          sel.value = prev;
+          currentDeviceId = prev;
         }
       } catch (e) {
         console.warn('Could not load device list:', e);
