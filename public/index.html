@@ -3,196 +3,602 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Gas Sensor Dashboard — Industrial IoT</title>
-  <meta name="description" content="Real-time industrial gas sensor monitoring dashboard">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-  <link rel="stylesheet" href="style.css">
+  <title>Gas Sensor Live Dashboard</title>
+  <meta name="description" content="Real-time industrial gas sensor monitoring dashboard powered by AWS IoT Core & DynamoDB">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-primary: #0a0e1a;
+      --bg-secondary: #111827;
+      --bg-card: rgba(17, 24, 39, 0.7);
+      --border-card: rgba(99, 102, 241, 0.15);
+      --text-primary: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --accent-indigo: #6366f1;
+      --accent-cyan: #22d3ee;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-rose: #f43f5e;
+      --glow-indigo: rgba(99, 102, 241, 0.3);
+      --glow-cyan: rgba(34, 211, 238, 0.25);
+      --safe: #34d399;
+      --warning: #fbbf24;
+      --danger: #f43f5e;
+      --critical: #dc2626;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-primary); color: var(--text-primary);
+      min-height: 100vh; overflow-x: hidden;
+    }
+
+    body::before {
+      content: ''; position: fixed;
+      top: -50%; left: -50%; width: 200%; height: 200%;
+      background: radial-gradient(circle at 20% 50%, rgba(99, 102, 241, 0.06) 0%, transparent 50%),
+                  radial-gradient(circle at 80% 20%, rgba(34, 211, 238, 0.04) 0%, transparent 50%),
+                  radial-gradient(circle at 50% 80%, rgba(244, 63, 94, 0.03) 0%, transparent 50%);
+      animation: bgPulse 15s ease-in-out infinite; z-index: 0; pointer-events: none;
+    }
+
+    @keyframes bgPulse { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(-2%, -1%) scale(1.03); } }
+
+    .app { position: relative; z-index: 1; }
+
+    /* Header */
+    header {
+      padding: 1.25rem 2rem; display: flex; align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(99, 102, 241, 0.1);
+      backdrop-filter: blur(20px); background: rgba(10, 14, 26, 0.8);
+      position: sticky; top: 0; z-index: 50;
+    }
+
+    .logo-section { display: flex; align-items: center; gap: 0.75rem; }
+
+    .logo-icon {
+      width: 40px; height: 40px; border-radius: 12px;
+      background: linear-gradient(135deg, var(--accent-indigo), var(--accent-cyan));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.3rem; box-shadow: 0 0 20px var(--glow-indigo);
+    }
+
+    .logo-text h1 {
+      font-size: 1.15rem; font-weight: 700;
+      background: linear-gradient(135deg, var(--text-primary), var(--accent-cyan));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+
+    .logo-text span { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+
+    .header-right { display: flex; align-items: center; gap: 0.75rem; }
+
+    .badge {
+      display: flex; align-items: center; gap: 0.5rem;
+      padding: 0.4rem 0.9rem; border-radius: 50px;
+      font-size: 0.75rem; font-weight: 500; border: 1px solid;
+      transition: all 0.4s ease;
+    }
+
+    .badge .dot { width: 8px; height: 8px; border-radius: 50%; transition: all 0.4s ease; }
+
+    .badge.connecting { border-color: rgba(251, 191, 36, 0.3); color: var(--accent-amber); background: rgba(251, 191, 36, 0.08); }
+    .badge.connecting .dot { background: var(--accent-amber); box-shadow: 0 0 8px var(--accent-amber); animation: pulse 1.5s infinite; }
+    .badge.connected { border-color: rgba(52, 211, 153, 0.3); color: var(--accent-emerald); background: rgba(52, 211, 153, 0.08); }
+    .badge.connected .dot { background: var(--accent-emerald); box-shadow: 0 0 8px var(--accent-emerald); }
+    .badge.error { border-color: rgba(244, 63, 94, 0.3); color: var(--accent-rose); background: rgba(244, 63, 94, 0.08); }
+    .badge.error .dot { background: var(--accent-rose); box-shadow: 0 0 8px var(--accent-rose); }
+    .badge.db { border-color: rgba(99, 102, 241, 0.25); color: var(--accent-indigo); background: rgba(99, 102, 241, 0.08); }
+    .badge.db.loaded { border-color: rgba(52, 211, 153, 0.3); color: var(--accent-emerald); background: rgba(52, 211, 153, 0.08); }
+
+    @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.7); } }
+
+    main { padding: 1.5rem 2rem 3rem; max-width: 1400px; margin: 0 auto; }
+
+    /* Metric Cards */
+    .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.25rem; margin-bottom: 1.5rem; }
+
+    .metric-card {
+      background: var(--bg-card); backdrop-filter: blur(16px);
+      border: 1px solid var(--border-card); border-radius: 16px;
+      padding: 1.5rem; position: relative; overflow: hidden;
+      transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+    }
+
+    .metric-card:hover { transform: translateY(-3px); box-shadow: 0 12px 40px rgba(0,0,0,0.3); border-color: rgba(99, 102, 241, 0.3); }
+
+    .metric-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: 16px 16px 0 0; }
+    .metric-card:nth-child(1)::before { background: linear-gradient(90deg, var(--accent-indigo), var(--accent-cyan)); }
+    .metric-card:nth-child(2)::before { background: linear-gradient(90deg, var(--accent-emerald), var(--accent-cyan)); }
+    .metric-card:nth-child(3)::before { background: linear-gradient(90deg, var(--accent-amber), #f97316); }
+    .metric-card:nth-child(4)::before { background: linear-gradient(90deg, var(--accent-rose), #a855f7); }
+
+    .metric-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); font-weight: 500; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.4rem; }
+    .metric-label .icon { font-size: 1rem; }
+    .metric-value { font-size: 2rem; font-weight: 800; letter-spacing: -0.03em; line-height: 1; margin-bottom: 0.35rem; }
+    .metric-sub { font-size: 0.7rem; color: var(--text-muted); }
+
+    .gas-level-safe .metric-value { color: var(--safe); }
+    .gas-level-warning .metric-value { color: var(--warning); }
+    .gas-level-danger .metric-value { color: var(--danger); }
+    .gas-level-critical .metric-value { color: var(--critical); }
+
+    /* Status Bar */
+    .status-bar {
+      background: var(--bg-card); backdrop-filter: blur(16px);
+      border: 1px solid var(--border-card); border-radius: 14px;
+      padding: 1rem 1.5rem; margin-bottom: 1.5rem;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+
+    .gas-level-indicator { display: flex; align-items: center; gap: 0.75rem; }
+    .level-bar { width: 200px; height: 8px; border-radius: 50px; background: rgba(255,255,255,0.06); overflow: hidden; }
+    .level-fill { height: 100%; border-radius: 50px; transition: width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.4s ease; width: 0%; }
+
+    .level-label { font-size: 0.8rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; padding: 0.25rem 0.75rem; border-radius: 50px; border: 1px solid; }
+    .level-label.safe { color: var(--safe); border-color: rgba(52, 211, 153, 0.3); background: rgba(52, 211, 153, 0.08); }
+    .level-label.warning { color: var(--warning); border-color: rgba(251, 191, 36, 0.3); background: rgba(251, 191, 36, 0.08); }
+    .level-label.danger { color: var(--danger); border-color: rgba(244, 63, 94, 0.3); background: rgba(244, 63, 94, 0.08); }
+    .level-label.critical { color: var(--critical); border-color: rgba(220, 38, 38, 0.3); background: rgba(220, 38, 38, 0.08); }
+
+    .stats-mini { display: flex; gap: 1.5rem; }
+    .stat-item { text-align: center; }
+    .stat-item .val { font-size: 1rem; font-weight: 700; }
+    .stat-item .lbl { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+
+    /* Chart */
+    .chart-section {
+      background: var(--bg-card); backdrop-filter: blur(16px);
+      border: 1px solid var(--border-card); border-radius: 16px;
+      padding: 1.5rem; margin-bottom: 1.5rem; overflow: hidden;
+    }
+
+    .chart-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+    .chart-title { font-size: 1rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; }
+    .chart-title .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-rose); box-shadow: 0 0 10px var(--accent-rose); animation: pulse 1.2s infinite; }
+    .chart-subtitle { font-size: 0.72rem; color: var(--text-muted); }
+    .chart-container { position: relative; height: 320px; }
+
+    .awaiting-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(10, 14, 26, 0.6); backdrop-filter: blur(4px); border-radius: 12px; z-index: 5; transition: opacity 0.5s ease; }
+    .awaiting-overlay.hidden { opacity: 0; pointer-events: none; }
+    .awaiting-spinner { width: 36px; height: 36px; border: 3px solid rgba(99, 102, 241, 0.15); border-top-color: var(--accent-indigo); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 1rem; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .awaiting-overlay p { font-size: 0.85rem; color: var(--text-secondary); }
+
+    /* History Table */
+    .history-section {
+      background: var(--bg-card); backdrop-filter: blur(16px);
+      border: 1px solid var(--border-card); border-radius: 16px;
+      padding: 1.5rem; overflow: hidden;
+    }
+
+    .history-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+    .history-title { font-size: 1rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; }
+
+    .btn-refresh {
+      background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.25);
+      color: var(--accent-indigo); padding: 0.4rem 1rem; border-radius: 8px;
+      font-size: 0.78rem; font-weight: 500; cursor: pointer; font-family: inherit;
+      transition: all 0.25s ease;
+    }
+
+    .btn-refresh:hover { background: rgba(99, 102, 241, 0.2); border-color: rgba(99, 102, 241, 0.5); transform: translateY(-1px); }
+    .btn-refresh:active { transform: translateY(0); }
+    .btn-refresh:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid rgba(255,255,255,0.04); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    thead th { text-align: left; padding: 0.75rem 1rem; background: rgba(99, 102, 241, 0.06); color: var(--text-muted); font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid rgba(255,255,255,0.06); white-space: nowrap; }
+    tbody td { padding: 0.65rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.03); color: var(--text-secondary); white-space: nowrap; }
+    tbody tr:hover { background: rgba(99, 102, 241, 0.04); }
+    tbody tr:last-child td { border-bottom: none; }
+    .td-gas { font-weight: 700; font-variant-numeric: tabular-nums; }
+    .td-gas.safe { color: var(--safe); }
+    .td-gas.warning { color: var(--warning); }
+    .td-gas.danger { color: var(--danger); }
+    .td-gas.critical { color: var(--critical); }
+
+    .empty-state { text-align: center; padding: 2.5rem 1rem; color: var(--text-muted); font-size: 0.85rem; }
+    .empty-state .icon { font-size: 2rem; margin-bottom: 0.5rem; }
+
+    footer { text-align: center; padding: 2rem; font-size: 0.7rem; color: var(--text-muted); border-top: 1px solid rgba(99, 102, 241, 0.06); margin-top: 2rem; }
+
+    @media (max-width: 900px) { .metrics-grid { grid-template-columns: repeat(2, 1fr); } main { padding: 1rem; } .status-bar { flex-direction: column; gap: 1rem; } }
+    @media (max-width: 500px) { .metrics-grid { grid-template-columns: 1fr; } header { padding: 1rem; flex-direction: column; gap: 0.75rem; } .chart-container { height: 220px; } .header-right { flex-direction: column; gap: 0.5rem; } }
+
+    @keyframes dataFlash { 0% { box-shadow: 0 0 0 0 var(--glow-cyan); } 50% { box-shadow: 0 0 25px 5px var(--glow-cyan); } 100% { box-shadow: 0 0 0 0 var(--glow-cyan); } }
+    .flash { animation: dataFlash 0.6s ease-out; }
+    @keyframes rowSlideIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
+    .row-new { animation: rowSlideIn 0.4s ease-out; }
+  </style>
 </head>
 <body>
+  <div class="app">
 
-  <!-- ───── Header ───── -->
-  <header class="header">
-    <div class="header-left">
-      <div class="logo">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
-        </svg>
-        <h1>GasSense<span class="accent">IQ</span></h1>
+    <header>
+      <div class="logo-section">
+        <div class="logo-icon">🏭</div>
+        <div class="logo-text">
+          <h1>Gas Sensor Dashboard</h1>
+          <span>Industrial IoT Monitoring</span>
+        </div>
       </div>
-      <span class="subtitle">Industrial Gas Monitoring</span>
-    </div>
-    <div class="header-right">
-      <div class="connection-status" id="connStatus">
-        <span class="status-dot"></span>
-        <span class="status-text">Connecting...</span>
+      <div class="header-right">
+        <div id="dbBadge" class="badge db">
+          <span>🗄️</span>
+          <span id="dbText">Loading DB…</span>
+        </div>
+        <div id="wsBadge" class="badge connecting">
+          <span class="dot"></span>
+          <span id="wsText">Connecting…</span>
+        </div>
       </div>
-      <select id="deviceSelect" class="device-select">
-        <option value="all">All Devices</option>
-      </select>
-    </div>
-  </header>
+    </header>
 
-  <!-- ───── Alert Banner ───── -->
-  <div class="alert-banner" id="alertBanner">
-    <div class="alert-content">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-        <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-      </svg>
-      <span id="alertText">GAS LEVEL CRITICAL — PPM EXCEEDS SAFETY THRESHOLD</span>
-    </div>
+    <main>
+
+      <section class="metrics-grid">
+        <div class="metric-card" id="cardGas">
+          <div class="metric-label"><span class="icon">🔬</span> Gas Value</div>
+          <div class="metric-value" id="gasValue">—</div>
+          <div class="metric-sub">ADC (0 – 4095)</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label"><span class="icon">📟</span> Device ID</div>
+          <div class="metric-value" id="deviceId" style="font-size:1.3rem;">—</div>
+          <div class="metric-sub">ESP32 Node</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label"><span class="icon">📍</span> Location</div>
+          <div class="metric-value" id="location" style="font-size:1.3rem;">—</div>
+          <div class="metric-sub">Sensor Zone</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label"><span class="icon">🕐</span> Last Update</div>
+          <div class="metric-value" id="timestamp" style="font-size:1rem;">—</div>
+          <div class="metric-sub" id="timeSince">No data yet</div>
+        </div>
+      </section>
+
+      <section class="status-bar">
+        <div class="gas-level-indicator">
+          <div class="level-bar">
+            <div class="level-fill" id="levelFill"></div>
+          </div>
+          <span class="level-label safe" id="levelLabel">SAFE</span>
+        </div>
+        <div class="stats-mini">
+          <div class="stat-item"><div class="val" id="statMin">—</div><div class="lbl">Min</div></div>
+          <div class="stat-item"><div class="val" id="statMax">—</div><div class="lbl">Max</div></div>
+          <div class="stat-item"><div class="val" id="statAvg">—</div><div class="lbl">Avg</div></div>
+          <div class="stat-item"><div class="val" id="statCount">0</div><div class="lbl">Readings</div></div>
+        </div>
+      </section>
+
+      <section class="chart-section">
+        <div class="chart-header">
+          <div>
+            <div class="chart-title"><span class="live-dot"></span> Live Gas Level Trend</div>
+            <div class="chart-subtitle">DynamoDB history + live WebSocket updates</div>
+          </div>
+        </div>
+        <div class="chart-container">
+          <div class="awaiting-overlay" id="awaitingOverlay">
+            <div class="awaiting-spinner"></div>
+            <p>Loading from DynamoDB…</p>
+          </div>
+          <canvas id="gasChart"></canvas>
+        </div>
+      </section>
+
+      <section class="history-section">
+        <div class="history-header">
+          <div class="history-title">🗄️ DynamoDB History</div>
+          <button class="btn-refresh" id="btnRefresh" onclick="loadHistory()">↻ Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>#</th><th>Device ID</th><th>Gas Value</th><th>Location</th><th>Timestamp</th></tr>
+            </thead>
+            <tbody id="historyBody">
+              <tr><td colspan="5" class="empty-state"><div class="icon">📡</div><div>Loading…</div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </main>
+
+    <footer>Gas Sensor Dashboard &middot; Powered by AWS IoT Core + DynamoDB &middot; ESP32</footer>
   </div>
 
-  <!-- ───── Main Grid ───── -->
-  <main class="dashboard">
+  <script>
+    // ═══════════════════════════════════════════════
+    //  CONFIG
+    // ═══════════════════════════════════════════════
+    const DEVICE_ID  = "device_01";
+    const MAX_POINTS = 30;
+    const MAX_TABLE  = 50;
 
-    <!-- PPM Card -->
-    <div class="card card-ppm" id="ppmCard">
-      <div class="card-header">
-        <h2>Gas Concentration</h2>
-        <span class="card-badge" id="ppmBadge">SAFE</span>
-      </div>
-      <div class="ppm-display">
-        <span class="ppm-value" id="ppmValue">---</span>
-        <span class="ppm-unit">PPM</span>
-      </div>
-      <div class="ppm-bar-container">
-        <div class="ppm-bar" id="ppmBar"></div>
-        <div class="ppm-threshold" style="left: 30%">
-          <span>300 PPM</span>
-        </div>
-      </div>
-      <div class="ppm-range">
-        <span>0</span><span>250</span><span>500</span><span>750</span><span>1000</span>
-      </div>
-    </div>
+    // ═══════════════════════════════════════════════
+    //  STATE
+    // ═══════════════════════════════════════════════
+    const allReadings = [];
+    let lastUpdateTime = null;
 
-    <!-- Stats Cards -->
-    <div class="card card-stat">
-      <div class="stat-icon stat-icon-current">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-        </svg>
-      </div>
-      <div class="stat-info">
-        <span class="stat-label">Current</span>
-        <span class="stat-value" id="statCurrent">--</span>
-      </div>
-    </div>
+    // ═══════════════════════════════════════════════
+    //  CHART
+    // ═══════════════════════════════════════════════
+    const ctx = document.getElementById('gasChart').getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, 0, 320);
+    grad.addColorStop(0, 'rgba(99, 102, 241, 0.25)');
+    grad.addColorStop(0.5, 'rgba(34, 211, 238, 0.08)');
+    grad.addColorStop(1, 'rgba(99, 102, 241, 0)');
 
-    <div class="card card-stat">
-      <div class="stat-icon stat-icon-min">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/>
-        </svg>
-      </div>
-      <div class="stat-info">
-        <span class="stat-label">Min</span>
-        <span class="stat-value" id="statMin">--</span>
-      </div>
-    </div>
+    const gasChart = new Chart(ctx, {
+      type: 'line',
+      data: { labels: [], datasets: [{
+        label: 'Gas Value', data: [],
+        borderColor: '#6366f1', backgroundColor: grad,
+        borderWidth: 2.5, pointBackgroundColor: '#6366f1',
+        pointBorderColor: '#1e1b4b', pointBorderWidth: 2,
+        pointRadius: 4, pointHoverRadius: 7,
+        fill: true, tension: 0.35,
+      }]},
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { intersect: false, mode: 'index' },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: 'rgba(17, 24, 39, 0.95)',
+            titleColor: '#f1f5f9', bodyColor: '#94a3b8',
+            borderColor: 'rgba(99, 102, 241, 0.3)', borderWidth: 1,
+            cornerRadius: 10, padding: 12, displayColors: false,
+            callbacks: {
+              title: items => '⏱ ' + items[0].label,
+              label: item => 'Gas Level: ' + item.raw
+            }
+          }
+        },
+        scales: {
+          x: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#64748b', font: { size: 10, family: 'Inter' }, maxRotation: 45 } },
+          y: { min: 0, suggestedMax: 4095, grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#64748b', font: { size: 10, family: 'Inter' } } }
+        },
+        animation: { duration: 500, easing: 'easeOutCubic' }
+      }
+    });
 
-    <div class="card card-stat">
-      <div class="stat-icon stat-icon-max">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>
-        </svg>
-      </div>
-      <div class="stat-info">
-        <span class="stat-label">Max</span>
-        <span class="stat-value" id="statMax">--</span>
-      </div>
-    </div>
+    // ═══════════════════════════════════════════════
+    //  HELPERS
+    // ═══════════════════════════════════════════════
+    function getGasLevel(v) {
+      if (v < 400) return { level: 'safe', label: 'SAFE', color: '#34d399' };
+      if (v < 700) return { level: 'warning', label: 'WARNING', color: '#fbbf24' };
+      if (v < 1000) return { level: 'danger', label: 'DANGER', color: '#f43f5e' };
+      return { level: 'critical', label: 'CRITICAL', color: '#dc2626' };
+    }
 
-    <div class="card card-stat">
-      <div class="stat-icon stat-icon-avg">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/>
-          <line x1="6" y1="20" x2="6" y2="14"/>
-        </svg>
-      </div>
-      <div class="stat-info">
-        <span class="stat-label">Average</span>
-        <span class="stat-value" id="statAvg">--</span>
-      </div>
-    </div>
+    function flashCard(id) {
+      const el = document.getElementById(id);
+      el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+    }
 
-    <!-- Chart -->
-    <div class="card card-chart">
-      <div class="card-header">
-        <h2>PPM Over Time</h2>
-        <div class="chart-controls">
-          <button class="chart-btn active" data-range="50">Last 50</button>
-          <button class="chart-btn" data-range="100">Last 100</button>
-        </div>
-      </div>
-      <div class="chart-container">
-        <canvas id="ppmChart"></canvas>
-      </div>
-    </div>
+    function formatTs(ts) {
+      if (!ts) return '—';
+      if (typeof ts === 'number') { const d = ts > 1e12 ? new Date(ts) : new Date(ts * 1000); return d.toLocaleString(); }
+      return String(ts).replace('T', '  ');
+    }
 
-    <!-- Signal & Device Info -->
-    <div class="card card-signal">
-      <div class="card-header"><h2>WiFi Signal</h2></div>
-      <div class="signal-display">
-        <span class="signal-value" id="rssiValue">--</span>
-        <span class="signal-unit">dBm</span>
-      </div>
-      <div class="signal-bars" id="signalBars">
-        <div class="bar bar-1"></div>
-        <div class="bar bar-2"></div>
-        <div class="bar bar-3"></div>
-        <div class="bar bar-4"></div>
-      </div>
-      <div class="device-info">
-        <div class="info-row">
-          <span>Device</span><span id="infoDevice">--</span>
-        </div>
-        <div class="info-row">
-          <span>Raw ADC</span><span id="infoADC">--</span>
-        </div>
-        <div class="info-row">
-          <span>Last Update</span><span id="infoTime">--</span>
-        </div>
-      </div>
-    </div>
+    function timeLabel(ts) {
+      if (!ts) return '?';
+      if (typeof ts === 'number') { const d = ts > 1e12 ? new Date(ts) : new Date(ts * 1000); return d.toTimeString().substring(0, 8); }
+      const s = String(ts); return s.includes('T') ? s.split('T')[1].substring(0, 8) : s;
+    }
 
-    <!-- Data Table -->
-    <div class="card card-table">
-      <div class="card-header">
-        <h2>Recent Readings</h2>
-        <span class="reading-count" id="readingCount">0 readings</span>
-      </div>
-      <div class="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th>Device</th>
-              <th>PPM</th>
-              <th>ADC</th>
-              <th>RSSI</th>
-              <th>Alert</th>
-            </tr>
-          </thead>
-          <tbody id="tableBody">
-            <tr><td colspan="6" class="empty-state">Waiting for data...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
+    function updateTimeSince() {
+      if (!lastUpdateTime) return;
+      const diff = Math.floor((Date.now() - lastUpdateTime) / 1000);
+      const el = document.getElementById('timeSince');
+      if (diff < 5) el.textContent = 'Just now';
+      else if (diff < 60) el.textContent = diff + 's ago';
+      else if (diff < 3600) el.textContent = Math.floor(diff / 60) + 'm ago';
+      else el.textContent = Math.floor(diff / 3600) + 'h ago';
+    }
 
-  </main>
+    function updateStats() {
+      if (!allReadings.length) return;
+      document.getElementById('statMin').textContent = Math.min(...allReadings);
+      document.getElementById('statMax').textContent = Math.max(...allReadings);
+      document.getElementById('statAvg').textContent = Math.round(allReadings.reduce((a, b) => a + b, 0) / allReadings.length);
+      document.getElementById('statCount').textContent = allReadings.length;
+    }
 
-  <!-- ───── Footer ───── -->
-  <footer class="footer">
-    <span>GasSenseIQ — Industrial IoT Monitoring</span>
-    <span id="footerTime"></span>
-  </footer>
+    // ═══════════════════════════════════════════════
+    //  UPDATE UI
+    // ═══════════════════════════════════════════════
+    function updateCards(item) {
+      const gasVal = Number(item.gas_value ?? item.gas_ppm ?? 0);
+      const info = getGasLevel(gasVal);
 
-  <script src="app.js"></script>
+      document.getElementById('cardGas').className = 'metric-card gas-level-' + info.level;
+      document.getElementById('gasValue').textContent = gasVal;
+      document.getElementById('deviceId').textContent = item.device_id || '—';
+      document.getElementById('location').textContent = item.location || '—';
+      document.getElementById('timestamp').textContent = formatTs(item.timestamp);
+      lastUpdateTime = Date.now();
+      flashCard('cardGas');
+
+      const pct = Math.min((gasVal / 4095) * 100, 100);
+      document.getElementById('levelFill').style.width = pct + '%';
+      document.getElementById('levelFill').style.background = 'linear-gradient(90deg,' + info.color + 'cc,' + info.color + ')';
+      const lbl = document.getElementById('levelLabel');
+      lbl.textContent = info.label;
+      lbl.className = 'level-label ' + info.level;
+    }
+
+    function addChartPoint(ts, gasVal) {
+      gasChart.data.labels.push(timeLabel(ts));
+      gasChart.data.datasets[0].data.push(Number(gasVal));
+      if (gasChart.data.labels.length > MAX_POINTS) { gasChart.data.labels.shift(); gasChart.data.datasets[0].data.shift(); }
+    }
+
+    // ═══════════════════════════════════════════════
+    //  HISTORY TABLE
+    // ═══════════════════════════════════════════════
+    function addHistoryRow(item, prepend) {
+      const tbody = document.getElementById('historyBody');
+      const empty = tbody.querySelector('.empty-state');
+      if (empty) empty.parentElement.remove();
+
+      const gasVal = Number(item.gas_value ?? item.gas_ppm ?? 0);
+      const info = getGasLevel(gasVal);
+      const tr = document.createElement('tr');
+      if (prepend) tr.classList.add('row-new');
+
+      tr.innerHTML =
+        '<td style="color:var(--text-muted)">' + (prepend ? '★' : (tbody.rows.length + 1)) + '</td>' +
+        '<td>' + (item.device_id || '—') + '</td>' +
+        '<td class="td-gas ' + info.level + '">' + gasVal + '</td>' +
+        '<td>' + (item.location || '—') + '</td>' +
+        '<td>' + formatTs(item.timestamp) + '</td>';
+
+      if (prepend) {
+        tbody.insertBefore(tr, tbody.firstChild);
+        while (tbody.rows.length > MAX_TABLE) tbody.removeChild(tbody.lastChild);
+      } else {
+        tbody.appendChild(tr);
+      }
+    }
+
+    // ═══════════════════════════════════════════════
+    //  LOAD HISTORY FROM SERVER API
+    // ═══════════════════════════════════════════════
+    async function loadHistory() {
+      const btn = document.getElementById('btnRefresh');
+      btn.disabled = true; btn.textContent = '⏳ Loading…';
+      setDbBadge('loading', 'Querying…');
+
+      try {
+        const res = await fetch('/api/data/' + DEVICE_ID + '?limit=50');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+
+        const json = await res.json();
+        const items = json.items || [];
+        console.log('API returned', items.length, 'items');
+
+        setDbBadge('loaded', items.length + ' records');
+
+        // Build table (newest first)
+        const tbody = document.getElementById('historyBody');
+        tbody.innerHTML = '';
+
+        const reversed = [...items].reverse();
+        if (reversed.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><div class="icon">📭</div><div>No data in DynamoDB yet</div></td></tr>';
+        } else {
+          reversed.forEach(item => addHistoryRow(item, false));
+        }
+
+        // Chart (chronological = items as-is)
+        gasChart.data.labels = [];
+        gasChart.data.datasets[0].data = [];
+        allReadings.length = 0;
+
+        const chartItems = items.slice(-MAX_POINTS);
+        chartItems.forEach(item => {
+          const g = Number(item.gas_value ?? item.gas_ppm ?? 0);
+          allReadings.push(g);
+          addChartPoint(item.timestamp, g);
+        });
+
+        gasChart.update('default');
+        updateStats();
+
+        // Update cards with latest
+        if (items.length > 0) {
+          updateCards(items[items.length - 1]);
+          document.getElementById('awaitingOverlay').classList.add('hidden');
+        }
+      } catch (err) {
+        console.error('loadHistory error:', err);
+        setDbBadge('error', 'Error: ' + err.message);
+      }
+
+      btn.disabled = false; btn.textContent = '↻ Refresh';
+    }
+
+    function setDbBadge(state, text) {
+      const b = document.getElementById('dbBadge');
+      b.className = 'badge db' + (state === 'loaded' ? ' loaded' : state === 'error' ? ' error' : '');
+      document.getElementById('dbText').textContent = text;
+    }
+
+    // ═══════════════════════════════════════════════
+    //  WEBSOCKET — LIVE UPDATES
+    // ═══════════════════════════════════════════════
+    function setWsBadge(state, text) {
+      const b = document.getElementById('wsBadge');
+      b.className = 'badge ' + state;
+      document.getElementById('wsText').textContent = text;
+    }
+
+    let ws;
+    let wsRetry = 1000;
+
+    function connectWebSocket() {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(proto + '//' + location.host);
+
+      ws.onopen = () => {
+        console.log('WebSocket connected');
+        setWsBadge('connected', 'Live');
+        wsRetry = 1000;
+      };
+
+      ws.onclose = () => {
+        setWsBadge('connecting', 'Reconnecting…');
+        setTimeout(connectWebSocket, wsRetry);
+        wsRetry = Math.min(wsRetry * 2, 30000);
+      };
+
+      ws.onerror = () => setWsBadge('error', 'WS Error');
+
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          if (msg.type === 'data' && msg.items) {
+            // Process each item
+            msg.items.forEach(item => {
+              const gasVal = Number(item.gas_value ?? item.gas_ppm ?? 0);
+              allReadings.push(gasVal);
+              updateCards(item);
+              addChartPoint(item.timestamp, gasVal);
+              addHistoryRow(item, true);
+            });
+            gasChart.update('default');
+            updateStats();
+            document.getElementById('awaitingOverlay').classList.add('hidden');
+          }
+        } catch (e) {
+          console.error('WS parse error:', e);
+        }
+      };
+    }
+
+    // ═══════════════════════════════════════════════
+    //  INIT
+    // ═══════════════════════════════════════════════
+    loadHistory();
+    connectWebSocket();
+    setInterval(updateTimeSince, 1000);
+    setInterval(loadHistory, 300000); // Refresh history every 5 min
+  </script>
 </body>
 </html>
