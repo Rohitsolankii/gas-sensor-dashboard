@@ -113,8 +113,9 @@ wss.on('connection', (ws) => {
   ws.on('close', () => console.log('WebSocket client disconnected'));
 });
 
-// Poll DynamoDB every 10s and push new data to WebSocket clients
-let lastPollTimestamp = null;
+// Poll DynamoDB every 10s and push ONLY new data to WebSocket clients
+// Initialize to current time so we never broadcast old/historical data
+let lastPollTimestamp = new Date().toISOString();
 
 async function pollAndBroadcast() {
   if (wss.clients.size === 0) return; // skip if no clients
@@ -122,28 +123,35 @@ async function pollAndBroadcast() {
   try {
     const result = await docClient.send(new ScanCommand({
       TableName: TABLE_NAME,
-      Limit: 50
+      Limit: 100
     }));
 
-    const items = result.Items || [];
+    const allItems = result.Items || [];
 
-    // Find the newest item's timestamp
-    let newest = null;
-    items.forEach(item => {
-      const ts = item.timestamp || item.aws_timestamp;
-      if (!newest || String(ts) > String(newest)) newest = ts;
+    // CRITICAL FIX: Only broadcast items that are genuinely NEWER than
+    // what we've already seen. DynamoDB Scan returns items in arbitrary
+    // order, so we must filter out old data.
+    const newItems = allItems.filter(item => {
+      const ts = String(item.timestamp || '');
+      return ts > lastPollTimestamp;
     });
 
-    // Only broadcast if we have new data
-    if (newest && newest !== lastPollTimestamp) {
-      lastPollTimestamp = newest;
+    if (newItems.length === 0) return;
 
-      const message = JSON.stringify({ type: 'data', items });
+    // Update lastPollTimestamp to the newest item we've seen
+    newItems.forEach(item => {
+      const ts = String(item.timestamp || '');
+      if (ts > lastPollTimestamp) lastPollTimestamp = ts;
+    });
 
-      wss.clients.forEach(client => {
-        if (client.readyState === 1) client.send(message);
-      });
-    }
+    // Only send the new items — not the entire scan result
+    const message = JSON.stringify({ type: 'data', items: newItems });
+
+    wss.clients.forEach(client => {
+      if (client.readyState === 1) client.send(message);
+    });
+
+    console.log(`📡 Broadcast ${newItems.length} new item(s)`);
   } catch (err) {
     console.error('Poll error:', err.message);
   }
