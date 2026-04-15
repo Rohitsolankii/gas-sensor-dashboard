@@ -122,7 +122,7 @@ async function pollAndBroadcast() {
   try {
     const result = await docClient.send(new ScanCommand({
       TableName: TABLE_NAME,
-      Limit: 10
+      Limit: 50
     }));
 
     const items = result.Items || [];
